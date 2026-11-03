@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>fluffy-giggle</title>
+    <script>
+      // Same key and rule as src/lib/theme.ts, so the first paint matches.
+      ;(() => {
+        const media = window.matchMedia('(prefers-color-scheme: dark)')
+        const stored = () => {
+          try {
+            return localStorage.getItem('theme')
+          } catch {
+            return null
+          }
+        }
+        const apply = () => {
+          const theme = stored()
+          document.documentElement.classList.toggle(
+            'dark',
+            theme === 'dark' || (theme !== 'light' && media.matches),
+          )
+        }
+        apply()
+        media.addEventListener('change', apply)
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
