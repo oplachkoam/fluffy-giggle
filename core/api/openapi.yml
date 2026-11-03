@@ -1,0 +1,380 @@
+openapi: 3.1.0
+info:
+  title: fluffy-giggle
+  version: 0.1.0
+  description: Пайплайн «слабая LLM + сильный adviser». Все ручки под `/v1` требуют HTTP Basic.
+servers:
+  - url: /v1
+security:
+  - basic: []
+tags:
+  - name: Auth
+  - name: Runs
+  - name: Cases
+  - name: Benchmarks
+  - name: Events
+paths:
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Кто вошёл
+      responses:
+        "200":
+          description: Логин оператора
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [login]
+                properties:
+                  login: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /events:
+    get:
+      tags: [Events]
+      summary: Поток событий (SSE)
+      description: События `run`, `step`, `benchmark`; данные — те же объекты, что в ответах ручек.
+      responses:
+        "200":
+          description: text/event-stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+  /runs:
+    post:
+      tags: [Runs]
+      summary: Создать запуск
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRun" }
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                advisor_mode: { $ref: "#/components/schemas/AdvisorMode" }
+                text: { type: string }
+                case_id: { type: string }
+                image: { type: string, format: binary, description: PNG или JPEG до 10 МБ }
+      responses:
+        "201":
+          description: Запуск поставлен в очередь
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Validation" }
+    get:
+      tags: [Runs]
+      summary: Список запусков
+      parameters:
+        - name: before
+          in: query
+          schema: { type: string, format: uuid }
+          description: Курсор `next` предыдущей страницы
+      responses:
+        "200":
+          description: От новых к старым, по 50
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runs, next]
+                properties:
+                  runs:
+                    type: array
+                    items: { $ref: "#/components/schemas/Run" }
+                  next: { type: string, description: Пусто на последней странице }
+  /runs/{id}:
+    get:
+      tags: [Runs]
+      summary: Запуск с шагами
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Запуск
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /runs/{id}/image:
+    get:
+      tags: [Runs]
+      summary: Исходное изображение
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: PNG или JPEG
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /runs/{id}/review:
+    post:
+      tags: [Runs]
+      summary: Решение оператора по эскалации
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision:
+                  type: string
+                  enum: [continue, finish_without_advisor]
+      responses:
+        "200":
+          description: Запуск продолжен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Validation" }
+  /cases:
+    get:
+      tags: [Cases]
+      summary: Кейсы фикстуры
+      responses:
+        "200":
+          description: Список
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Case" }
+  /benchmarks:
+    post:
+      tags: [Benchmarks]
+      summary: Прогнать фикстуру во всех режимах
+      responses:
+        "201":
+          description: Бенчмарк запущен
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Benchmark" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    get:
+      tags: [Benchmarks]
+      summary: Список бенчмарков
+      responses:
+        "200":
+          description: От новых к старым
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Benchmark" }
+  /benchmarks/{id}:
+    get:
+      tags: [Benchmarks]
+      summary: Бенчмарк со сводкой и запусками
+      parameters: [{ $ref: "#/components/parameters/ID" }]
+      responses:
+        "200":
+          description: Бенчмарк
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Benchmark" }
+        "404": { $ref: "#/components/responses/NotFound" }
+components:
+  securitySchemes:
+    basic:
+      type: http
+      scheme: basic
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  responses:
+    Unauthorized:
+      description: Неверный логин или пароль
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Не найдено
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: Состояние не позволяет действие
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Validation:
+      description: Ошибка валидации
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: integer }
+        message: { type: string }
+    AdvisorMode:
+      type: string
+      enum: [off, on, placebo]
+    CreateRun:
+      type: object
+      required: [advisor_mode]
+      properties:
+        advisor_mode: { $ref: "#/components/schemas/AdvisorMode" }
+        text: { type: string }
+        case_id: { type: string }
+    Span:
+      type: object
+      required: [text, type, canonical]
+      properties:
+        text: { type: string }
+        type: { $ref: "#/components/schemas/PIIType" }
+        canonical: { type: string }
+    PIIType:
+      type: string
+      enum: [PERSON, PHONE, EMAIL, PASSPORT, SNILS, INN, CARD, ACCOUNT, ADDRESS, DATE, ORG, OTHER]
+    VaultEntry:
+      type: object
+      required: [placeholder, type, canonical, forms]
+      properties:
+        placeholder: { type: string }
+        type: { $ref: "#/components/schemas/PIIType" }
+        canonical: { type: string }
+        forms:
+          type: array
+          items: { type: string }
+    Card:
+      type: object
+      required: [category, subject, amount_range, event_period, requested_action, summary]
+      properties:
+        category: { type: string }
+        subject: { type: string }
+        amount_range: { type: string }
+        event_period: { type: string }
+        requested_action: { type: string }
+        summary: { type: string }
+    Step:
+      type: object
+      required: [id, run_id, seq, kind, side, status, started_at, finished_at, duration_ms, model, prompt_tokens, completion_tokens, input, output, error]
+      properties:
+        id: { type: string, format: uuid }
+        run_id: { type: string, format: uuid }
+        seq: { type: integer }
+        kind:
+          type: string
+          enum: [ingest, vision, gate1, gate2, review, draft, egress, advise, finalize, judge, reidentify]
+        side:
+          type: string
+          enum: [local, cloud, system, placebo]
+        status:
+          type: string
+          enum: [ok, failed, blocked, skipped]
+        started_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        duration_ms: { type: integer }
+        model: { type: string }
+        prompt_tokens: { type: integer }
+        completion_tokens: { type: integer }
+        input: { type: object, additionalProperties: true, description: Точный вход шага }
+        output: { type: object, additionalProperties: true, description: Точный выход шага }
+        error: { type: string }
+    Run:
+      type: object
+      required: [id, created_at, updated_at, status, phase, advisor_mode, advisor_outcome, review_decision, source, case_id, benchmark_id, has_image, input_text, anonymized_text, vault, review_findings, card, draft, advice, final_anonymized, final_text, judge_score, judge_reason, gate2_passes, escalated, canaries_total, canaries_leaked, error]
+      properties:
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [queued, running, needs_review, done, failed]
+        phase:
+          type: string
+          enum: [anonymize, compose, finished]
+        advisor_mode: { $ref: "#/components/schemas/AdvisorMode" }
+        advisor_outcome:
+          type: string
+          enum: [pending, applied, placebo, skipped, blocked]
+        review_decision:
+          type: string
+          enum: ["", continue, finish_without_advisor]
+        source:
+          type: string
+          enum: [text, image]
+        case_id: { type: string }
+        benchmark_id: { type: string }
+        has_image: { type: boolean }
+        input_text: { type: string }
+        anonymized_text: { type: string }
+        vault:
+          type: array
+          items: { $ref: "#/components/schemas/VaultEntry" }
+        review_findings:
+          type: array
+          items: { $ref: "#/components/schemas/Span" }
+        card:
+          oneOf:
+            - $ref: "#/components/schemas/Card"
+            - type: "null"
+        draft: { type: string }
+        advice:
+          type: array
+          items: { type: string }
+        final_anonymized: { type: string }
+        final_text: { type: string }
+        judge_score: { type: [integer, "null"], minimum: 1, maximum: 5 }
+        judge_reason: { type: string }
+        gate2_passes: { type: integer }
+        escalated: { type: boolean }
+        canaries_total: { type: integer }
+        canaries_leaked: { type: integer }
+        error: { type: string }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/Step" }
+    Case:
+      type: object
+      required: [id, title, has_image, canaries]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        has_image: { type: boolean }
+        canaries: { type: integer }
+    ModeSummary:
+      type: object
+      required: [mode, runs, done, failed, escalated, blocked, scored, avg_score, leaked, gate2_avg]
+      properties:
+        mode: { $ref: "#/components/schemas/AdvisorMode" }
+        runs: { type: integer }
+        done: { type: integer }
+        failed: { type: integer }
+        escalated: { type: integer }
+        blocked: { type: integer }
+        scored: { type: integer }
+        avg_score: { type: [number, "null"] }
+        leaked: { type: integer }
+        gate2_avg: { type: number }
+    Benchmark:
+      type: object
+      required: [id, created_at, status, total, finished]
+      properties:
+        id: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        status:
+          type: string
+          enum: [running, done]
+        total: { type: integer }
+        finished: { type: integer }
+        summary:
+          type: array
+          items: { $ref: "#/components/schemas/ModeSummary" }
+        runs:
+          type: array
+          items: { $ref: "#/components/schemas/Run" }

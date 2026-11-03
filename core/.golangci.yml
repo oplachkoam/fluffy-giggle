@@ -1,0 +1,56 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - errcheck
+    - errorlint
+    - exhaustive
+    - govet
+    - ineffassign
+    - nilerr
+    - nilnesserr
+    - noctx
+    - revive
+    - staticcheck
+    - unused
+  settings:
+    exhaustive:
+      default-signifies-exhaustive: true
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+  exclusions:
+    paths:
+      - internal/storage/sqlite/sqlc
+      - internal/domain/port/mock
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+    - golines
+  settings:
+    goimports:
+      local-prefixes:
+        - fluffy-giggle/core
+    golines:
+      max-len: 110
+      tab-len: 4
+      shorten-comments: false
+  exclusions:
+    paths:
+      - internal/storage/sqlite/sqlc
+      - internal/domain/port/mock
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
